@@ -13,6 +13,10 @@ from discord.ext import commands
 from keep_alive import keep_alive
 load_dotenv()
 
+
+from discord.ext import tasks
+
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("normalize_tree_fixed")
 
@@ -91,19 +95,22 @@ def normalize_channel_name(original: str) -> str:
 intents = discord.Intents.all()
 intents.guilds = True
 bot = commands.Bot(command_prefix="!", intents=intents)
+@tasks.loop(minutes=5)
+async def refresh_presence():
+    activity = discord.Activity(type=discord.ActivityType.watching, name=f"{len(bot.guilds)} servers")
+    await bot.change_presence(status=discord.Status.online, activity=activity)
 
 @bot.event
 async def on_ready():
-    await bot.tree.sync()
-    logger.info("Synced application commands")
+    try:
+        await bot.tree.sync()
+        logger.info("Synced application commands")
+    except Exception as e:
+        logger.warning("Couldn't sync application commands: %s", e)
     logger.info(f"Logged in as {bot.user}")
-    activity = discord.Activity(
-        type=discord.ActivityType.watching,
-        name=f"{len(bot.guilds)} Servers !"
-    )
-    await bot.change_presence(status=discord.Status.online, activity=activity)
-
-
+    if not refresh_presence.is_running():
+        refresh_presence.start()
+        
 # ---------- CONFIRMATION UI ----------
 class ConfirmRenameView(discord.ui.View):
     def __init__(self, author_id: int, timeout: float = 30.0):
@@ -209,10 +216,10 @@ async def normalize(interaction: discord.Interaction, mode: Optional[app_command
 
     await interaction.followup.send("```\n" + "\n".join(summary) + "\n```", ephemeral=True)
 
-# ---------- RUN BOT ----------
 if __name__ == "__main__":
+    # start keep-alive server in background thread so host (like Replit) doesn't shut down
+    keep_alive()
     token = os.getenv("DISCORD_TOKEN")
     if not token:
         raise SystemExit("DISCORD_TOKEN missing in .env")
     bot.run(token)
-    keep_alive()
